@@ -19,6 +19,9 @@ Blue:
 BlackWhite:
 	$(run) -np 1 ./pract2 W
 
+Sepia:
+	$(run) -np 1 ./pract2 S
+
 Negativo:
 	$(run) -np 1 ./pract2 N
 run:
