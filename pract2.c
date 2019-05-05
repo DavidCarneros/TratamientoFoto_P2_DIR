@@ -1,6 +1,7 @@
 /* Pract2  RAP 09/10    Javier Ayllon*/
 
 #include <openmpi/mpi.h>
+//#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <X11/Xlib.h> 
@@ -11,6 +12,7 @@
 #define NUM 4
 #define FOTO "foto.dat"
 #define FILA_IMAGEN 400
+#define COLUMNA_IMAGEN 400
 #define INICIO 0
 #define FINAL 1
 
@@ -63,27 +65,14 @@ void dibujaPunto(int x,int y, int r, int g, int b) {
 }
 
 
-int *RepartirTarea(int rank,int size){
-      static int reparto[2];
-      long totalFoto = FILA_IMAGEN * FILA_IMAGEN;      
-      int division = totalFoto / NUM;
-      reparto[INICIO] = division * rank;
-      reparto[FINAL] = division * (rank+1)-1;
-      if(rank==(size-1))
-      {
-            reparto[FINAL] = totalFoto;
-      }
-    
 
-      return reparto;
-}
 
 /* -------------- Declaracion de funciones --------------- */
 
 void tratarImagen(int rank,int *reparto, long bytesLeer, MPI_Comm commPadre,MPI_File imagen,char *flag);
 void aplicarFiltro(int x,int y,unsigned char *pixel,MPI_Comm commPadre, char *flag);
 void esperarPuntos(MPI_Comm commPadre);
-
+int *RepartirTarea(int rank,int size);
 
 /* Programa principal */
 
@@ -108,41 +97,24 @@ int main (int argc, char *argv[]) {
 	initX();
 
 	/* Codigo del maestro */
-
-     
       MPI_Comm_spawn("pract2",argv,NUM,MPI_INFO_NULL,0,MPI_COMM_WORLD,&intercomm,errcodes);
-      
       printf("[Proceso PRINCIPAL] He creado %d procesos \n",NUM);
-
       esperarPuntos(intercomm);
-
       printf("[Proceso PRINCIPAL] Pulse cualquier tecla para finalizar la ejecucion...\n ");
-
       getchar();
-
 	/*En algun momento dibujamos puntos en la ventana algo como
 	dibujaPunto(x,y,r,g,b);  */
-
         }
-
- 	
   else {      
-
      /* Reparto */
      int filaReparto = FILA_IMAGEN/NUM;
-     int reparto[2];
-     reparto[INICIO] = rank * filaReparto;
-     reparto[FINAL] = (rank+1) * filaReparto;
-     if(rank==size-1)
-     {
-           reparto[FINAL] = FILA_IMAGEN;
-     }
-     
+     int *reparto;
+     reparto = RepartirTarea(rank,size);
+
      long bytesLeer = filaReparto*FILA_IMAGEN*3*sizeof(unsigned char);
       
       MPI_File imagen;
-      MPI_File_open(MPI_COMM_WORLD, FOTO, MPI_MODE_RDONLY, MPI_INFO_NULL, &imagen);+
-
+      MPI_File_open(MPI_COMM_WORLD, FOTO, MPI_MODE_RDONLY, MPI_INFO_NULL, &imagen);
       MPI_File_set_view(imagen, rank*bytesLeer, 
             MPI_UNSIGNED_CHAR, MPI_UNSIGNED_CHAR, "native", MPI_INFO_NULL);
 
@@ -172,7 +144,7 @@ void tratarImagen(int rank,int *reparto, long bytesLeer, MPI_Comm commPadre,MPI_
       for(i=reparto[INICIO];i<reparto[FINAL];i++)
       {
             /* Recorremos cada columna */
-            for(j=0;j<FILA_IMAGEN;j++)
+            for(j=0;j<COLUMNA_IMAGEN;j++)
             {
                   MPI_File_read(imagen, pixel, 3, MPI_UNSIGNED_CHAR, &status);
                   aplicarFiltro(j,i,pixel,commPadre,flag);
@@ -217,6 +189,11 @@ void aplicarFiltro(int x,int y,unsigned char *pixel,MPI_Comm commPadre, char *fl
                   mensaje[3] = (int)(pixel[0]*0.2986)+(int)(pixel[1]*0.5870)+(int)(pixel[2]*0.1140);
                   mensaje[4] = (int)(pixel[0]*0.2986)+(int)(pixel[1]*0.5870)+(int)(pixel[2]*0.1140);
                   break;
+            case 'S':
+                  mensaje[2] = (int)(pixel[0]*0.393)+(int)(pixel[1]*0.769)+(int)(pixel[2]*0.189);
+                  mensaje[3] = (int)(pixel[0]*0.349)+(int)(pixel[1]*0.686)+(int)(pixel[2]*0.168);
+                  mensaje[4] = (int)(pixel[0]*0.272)+(int)(pixel[1]*0.534)+(int)(pixel[2]*0.131);
+                  break;
             case 'N':
                   mensaje[2] = 255-(int)pixel[0];
                   mensaje[3] = 255-(int)pixel[1];
@@ -228,7 +205,7 @@ void aplicarFiltro(int x,int y,unsigned char *pixel,MPI_Comm commPadre, char *fl
                   mensaje[4] = (int)pixel[2];
                   break;
       }
-      
+      /* comprobamos que los pixeles no se hayan pasado de valor */
       for(i=2;i<=4;i++)
       {
             if(mensaje[i]>255)
@@ -250,7 +227,7 @@ void aplicarFiltro(int x,int y,unsigned char *pixel,MPI_Comm commPadre, char *fl
  * demas procesos y llamar a la funcion dibujaPunto para pintarlo
  * 
 */
-void esperarPuntos(MPI_Comm commPadre)
+void esperarPuntos(MPI_Comm intercomm)
 {
       int buff[5];
       int i;
@@ -258,7 +235,27 @@ void esperarPuntos(MPI_Comm commPadre)
       MPI_Status status;
       for(i=0;i<size_imagen;i++)
       {
-            MPI_Recv(&buff,5,MPI_INT,MPI_ANY_SOURCE,1,commPadre,&status);
+            MPI_Recv(&buff,5,MPI_INT,MPI_ANY_SOURCE,1,intercomm,&status);
             dibujaPunto(buff[0],buff[1],buff[2],buff[3],buff[4]);
       }
+}
+
+/**
+ * 
+ * Cantidad de lineas de la imagen que le toca a cada proceso
+ * 
+*/
+int *RepartirTarea(int rank,int size){
+      /* Reparto */
+     int filaReparto = FILA_IMAGEN/NUM;
+     static int reparto[2];
+     reparto[INICIO] = rank * filaReparto;
+     reparto[FINAL] = (rank+1) * filaReparto;
+     if(rank==size-1)
+     {
+           reparto[FINAL] = FILA_IMAGEN;
+     }
+    
+
+      return reparto;
 }
