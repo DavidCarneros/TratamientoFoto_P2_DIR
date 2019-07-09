@@ -148,6 +148,7 @@ void tratarImagen(int rank,int *reparto, long bytesLeer, MPI_Comm commPadre,MPI_
             {
                   MPI_File_read(imagen, pixel, 3, MPI_UNSIGNED_CHAR, &status);
                   aplicarFiltro(j,i,pixel,commPadre,flag);
+                  
             } 
       }
       MPI_File_close(&imagen);
